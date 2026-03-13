@@ -58,7 +58,97 @@
     </div>
   </div>
 
-  <script>
+ <script>
+    // 🚨 【重要】あなたのGASのURLを再度ここに貼り付けてください 🚨
+    const GAS_API_URL = "ここにGASのURLを貼り付けてください";
+    
+    const LIFF_ID = "2009443949-Am11BkGY";
+    let currentUser = null;
+
+    window.onload = function() {
+      liff.init({ liffId: LIFF_ID })
+        .then(() => {
+          if (!liff.isLoggedIn()) { liff.login(); return; }
+          liff.getProfile().then(profile => {
+            document.getElementById('error-id').innerText = profile.userId;
+            checkAuthorization(profile.userId);
+          }).catch(err => alert("プロフィール取得エラー: " + err));
+        })
+        .catch(err => alert("LIFF初期化エラー: " + err));
+    };
+
+    function checkAuthorization(userId) {
+      // 画面を開いた時は「action=auth」として通信する
+      const url = GAS_API_URL + "?action=auth&userId=" + userId;
+
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('loading').style.display = 'none';
+
+          if (data.isAuthorized) {
+            document.getElementById('content').style.display = 'block';
+            document.getElementById('user-name').innerText = data.name + " 様";
+            document.getElementById('user-role').innerText = data.role;
+            currentUser = { id: userId, name: data.name, role: data.role };
+
+            const select = document.getElementById('product-select');
+            data.products.forEach(product => {
+              const option = document.createElement('option');
+              option.value = product.id; 
+              option.text = product.name + " (" + product.price + "円 / " + product.unit + ")"; 
+              select.appendChild(option);
+            });
+          } else {
+            document.getElementById('error').style.display = 'block';
+          }
+        })
+        .catch(error => alert("通信エラー\n" + error));
+    }
+
+    // 💡【更新】ボタンを押したときにスプレッドシートへ送信する処理
+    function testOrder() {
+      const select = document.getElementById('product-select');
+      const quantity = document.getElementById('quantity').value;
+      const productId = select.value;
+      const selectedText = select.options[select.selectedIndex].text;
+      
+      // 最終確認のポップアップを出す
+      const isOk = confirm(currentUser.name + " 様\n\n以下の内容で発注しますか？\n\n商品: " + selectedText + "\n数量: " + quantity);
+      
+      if (!isOk) return; // 「キャンセル」を押したらここでストップ
+
+      // 送信中の表示に切り替える
+      document.getElementById('content').style.display = 'none';
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('loading').innerHTML = "<h3>送信中...🚀</h3><p>発注データを記録しています</p>";
+
+      // 注文データをGASに送る（action=order）
+      const url = GAS_API_URL + "?action=order&userId=" + currentUser.id + "&productId=" + productId + "&quantity=" + quantity;
+
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          // 元の画面に戻す
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('content').style.display = 'block';
+
+          if (data.success) {
+            alert("✅ 発注が完了しました！\n\n注文番号: " + data.orderId);
+            document.getElementById('quantity').value = 1; // 数量を1に戻す
+          } else {
+            alert("❌ エラーが発生しました: " + data.message);
+          }
+        })
+        .catch(error => {
+          alert("通信エラーが発生しました。\n" + error);
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('content').style.display = 'block';
+        });
+    }
+  </script>
+  
+  <!-- <script>
     // 🚨 【重要】先ほどコピーしたGASの「ウェブアプリのURL」をここに貼ります 🚨
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwG4GDKMWeyWOBJPzgFSbpdf3Ca93pAm_4DNV46fok4cet_0oS46aSmCtD1cN_QFuYkig/exec";
     
@@ -119,7 +209,7 @@
       
       alert(currentUser.name + " 様\n\n以下の内容で発注しますか？\n\n商品: " + selectedText + "\n数量: " + quantity + "\n\n※今回は確認テストです。まだスプレッドシートには送信されません。");
     }
-  </script>
+  </script> -->
 </body>
 </html>
 
