@@ -133,6 +133,7 @@
     }
 
     // 🍽️ 複数商品のカート送信処理
+    // 🍽️ 複数商品のカート送信処理
     function submitOrder() {
       const items = [];
       let summary = "";
@@ -145,11 +146,37 @@
       if (!confirm("以下の内容で発注しますか？\n\n" + summary)) return;
 
       showLoading("送信中...🚀", "発注データを記録しています");
-      // JSONデータをURLエンコードして安全に送信
       const encodedItems = encodeURIComponent(JSON.stringify(items));
       fetch(GAS_API_URL + "?action=order&userId=" + currentUser.id + "&items=" + encodedItems)
-        .then(r => r.json()).then(data => { hideLoading('content-order'); if(data.success) { alert("✅ 発注完了！"); location.reload(); } else alert("❌ エラー: " + data.message); });
+        .then(r => r.json())
+        .then(data => { 
+          hideLoading('content-order'); 
+          if(data.success) { alert("✅ 発注完了！"); location.reload(); } 
+          else alert("❌ エラー: " + data.message); 
+        })
+        .catch(error => {
+          // 💡 これがフリーズ防止の安全装置です！
+          hideLoading('content-order');
+          alert("通信エラーが発生しました。\n詳細: " + error);
+        });
     }
+    // function submitOrder() {
+    //   const items = [];
+    //   let summary = "";
+    //   currentUser.products.forEach(p => {
+    //     const qty = Number(document.getElementById('qty-' + p.id).value);
+    //     if (qty > 0) { items.push({ id: p.id, quantity: qty }); summary += `・${p.name} × ${qty}\n`; }
+    //   });
+      
+    //   if (items.length === 0) { alert("商品を1つ以上選択してください。"); return; }
+    //   if (!confirm("以下の内容で発注しますか？\n\n" + summary)) return;
+
+    //   showLoading("送信中...🚀", "発注データを記録しています");
+    //   // JSONデータをURLエンコードして安全に送信
+    //   const encodedItems = encodeURIComponent(JSON.stringify(items));
+    //   fetch(GAS_API_URL + "?action=order&userId=" + currentUser.id + "&items=" + encodedItems)
+    //     .then(r => r.json()).then(data => { hideLoading('content-order'); if(data.success) { alert("✅ 発注完了！"); location.reload(); } else alert("❌ エラー: " + data.message); });
+    // }
 
     function approveOrder(orderId) {
       const manualFee = document.getElementById('fee-' + orderId).value;
