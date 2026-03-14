@@ -66,7 +66,7 @@
   <script>
     // 🚨 【重要】先ほどコピーした新しいGASのURLを貼り付けてください！
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyfRHoP05s5RJgvmIMBWjFJSeAbDYIDYDrCta5UEP2WhJsDbXmyJzssPLh-AImBwIrRsw/exec";
-    
+   
     const LIFF_ID = "2009443949-Am11BkGY";
     let currentUser = null;
 
@@ -91,14 +91,16 @@
           // 💡 権限で3つの画面を出し分ける！
           if (data.role === '飲食店') {
             document.getElementById('content-order').style.display = 'block';
-            document.getElementById('user-name-order').innerText = data.name + " 様";
+            document.getElementById('user-name-order').innerText = data.orgName + " 様";
+            // document.getElementById('user-name-order').innerText = data.name + " 様";
             document.getElementById('user-role-order').innerText = data.role;
             const select = document.getElementById('product-select');
             data.products.forEach(p => { select.add(new Option(p.name + " (" + p.price + "円)", p.id)); });
           
           } else if (data.role === '仲介者') {
             document.getElementById('content-admin').style.display = 'block';
-            document.getElementById('user-name-admin').innerText = data.name + " 様";
+            document.getElementById('user-name-admin').innerText = data.orgName + " 様";
+            // document.getElementById('user-name-admin').innerText = data.name + " 様";
             document.getElementById('user-role-admin').innerText = data.role;
             const listDiv = document.getElementById('admin-orders-list');
             if (data.orders.length === 0) listDiv.innerHTML = "<p>現在、承認待ちの注文はありません。</p>";
@@ -121,7 +123,8 @@
 
           } else if (data.role === '工場') {
             document.getElementById('content-factory').style.display = 'block';
-            document.getElementById('user-name-factory').innerText = data.name + " 様";
+            document.getElementById('user-name-factory').innerText = data.orgName + " 様";
+            // document.getElementById('user-name-factory').innerText = data.name + " 様";
             document.getElementById('user-role-factory').innerText = data.role;
             const listDiv = document.getElementById('pending-orders-list');
             if (data.orders.length === 0) listDiv.innerHTML = "<p>現在、未発送の注文はありません。</p>";
