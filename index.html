@@ -80,6 +80,204 @@
             document.getElementById('content-order').style.display = 'block';
             document.getElementById('user-name-order').innerText = nameText;
             const listDiv = document.getElementById('product-list');
+            data.products.forEach(p => {
+              listDiv.innerHTML += `
+                <div class="product-row">
+                  <div style="flex:1;"><strong>${p.name}</strong><br><span style="font-size:0.8em;color:#666;">${p.price}円 / ${p.unit}</span></div>
+                  <div style="width:80px;"><input type="number" id="qty-${p.id}" value="0" min="0"></div>
+                </div>`;
+            });
+          
+          } else if (data.role === '仲介者') {
+            document.getElementById('content-admin').style.display = 'block';
+            document.getElementById('user-name-admin').innerText = nameText;
+            const listDiv = document.getElementById('admin-orders-list');
+            if (data.orders.length === 0) listDiv.innerHTML = "<p>承認待ちの注文はありません。</p>";
+            else {
+              data.orders.forEach(order => {
+                // 💡 1商品ごとに手数料の入力欄をズラッと並べる！
+                let itemsHtml = order.items.map((item, index) => `
+                  <div style="background:#fff; padding:10px; border:1px solid #ddd; border-radius:4px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                    <div style="flex:1; padding-right:10px;">
+                      <strong>${item.productName}</strong> × ${item.quantity}<br>
+                      <span style="font-size:0.8em;color:#666;">飲食店への請求額: ${item.amount}円</span>
+                    </div>
+                    <div style="width:100px;">
+                      <label style="font-size:0.7em; color:#d32f2f; display:block; margin-bottom:2px; text-align:right;">仲介手数料</label>
+                      <input type="number" id="fee-${order.orderId}-${index}" value="${item.fee}" style="width:100%; padding:5px; text-align:right;">
+                    </div>
+                  </div>
+                `).join('');
+                
+                listDiv.innerHTML += `
+                  <div class="order-item">
+                    <p style="margin:0 0 5px 0; font-size:0.8em; color:gray;">注文番号: ${order.orderId}</p>
+                    <p style="margin:0 0 5px 0;"><strong>店舗:</strong> ${order.storeName}</p>
+                    <div style="background:#f0f8ff; padding:10px; border-radius:4px; margin-bottom:10px;">
+                      <p style="margin:0 0 10px 0; font-weight:bold; color:#0066cc;">注文明細と手数料の個別調整</p>
+                      ${itemsHtml}
+                    </div>
+                    <p style="margin:0 0 10px 0; text-align:right;"><strong>全体の合計請求額:</strong> ${order.totalAmount}円</p>
+                    <button class="btn-admin" onclick="approveOrder('${order.orderId}', ${order.items.length})">この内容で工場へ発注する</button>
+                  </div>`;
+              });
+            }
+
+          } else if (data.role === '工場') {
+            document.getElementById('content-factory').style.display = 'block';
+            document.getElementById('user-name-factory').innerText = nameText;
+            const listDiv = document.getElementById('pending-orders-list');
+            if (data.orders.length === 0) listDiv.innerHTML = "<p>未発送の注文はありません。</p>";
+            else {
+              data.orders.forEach(order => {
+                let itemsHtml = order.items.map(item => `・${item.productName} × ${item.quantity}`).join('<br>');
+                listDiv.innerHTML += `
+                  <div class="order-item">
+                    <p style="margin:0 0 5px 0; font-size:0.8em; color:gray;">注文番号: ${order.orderId}</p>
+                    <p style="margin:0 0 5px 0;"><strong>店舗:</strong> ${order.storeName}</p>
+                    <p style="margin:0 0 10px 0; background:#f0fff0; padding:5px;">${itemsHtml}</p>
+                    <button class="btn-factory" onclick="shipOrder('${order.orderId}')">発送完了にする</button>
+                  </div>`;
+              });
+            }
+          }
+        } else document.getElementById('error').style.display = 'block';
+      });
+    }
+
+    function submitOrder() {
+      const items = [];
+      let summary = "";
+      currentUser.products.forEach(p => {
+        const qty = Number(document.getElementById('qty-' + p.id).value);
+        if (qty > 0) { items.push({ id: p.id, quantity: qty }); summary += `・${p.name} × ${qty}\n`; }
+      });
+      
+      if (items.length === 0) { alert("商品を1つ以上選択してください。"); return; }
+      if (!confirm("以下の内容で発注しますか？\n\n" + summary)) return;
+
+      showLoading("送信中...🚀", "発注データを記録しています");
+      const encodedItems = encodeURIComponent(JSON.stringify(items));
+      fetch(GAS_API_URL + "?action=order&userId=" + currentUser.id + "&items=" + encodedItems)
+        .then(r => r.json())
+        .then(data => { hideLoading('content-order'); if(data.success) { alert("✅ 発注完了！"); location.reload(); } else alert("❌ エラー: " + data.message); })
+        .catch(error => { hideLoading('content-order'); alert("通信エラーが発生しました。\n詳細: " + error); });
+    }
+
+    // 👔 複数ある手数料をかき集めてGASへ送信！
+    function approveOrder(orderId, itemCount) {
+      const manualFees = [];
+      for(let i = 0; i < itemCount; i++) {
+        // 各商品のテキストボックスから手数料を拾い上げる
+        manualFees.push(Number(document.getElementById(`fee-${orderId}-${i}`).value));
+      }
+
+      if (!confirm("入力した手数料で工場へ発注しますか？\n（※飲食店の請求額から手数料を引いた額が、工場への原価になります）")) return;
+      
+      showLoading("承認中...👑", "発注書PDFを作成しています");
+      const encodedFees = encodeURIComponent(JSON.stringify(manualFees)); // 配列を安全な文字に変換
+      fetch(GAS_API_URL + "?action=approve&userId=" + currentUser.id + "&orderId=" + orderId + "&fees=" + encodedFees)
+        .then(r => r.json())
+        .then(data => { hideLoading('content-admin'); if(data.success) { alert("✅ 工場へ発注しました！"); location.reload(); } else alert("❌ エラー: " + data.message); })
+        .catch(error => { hideLoading('content-admin'); alert("通信エラーが発生しました。\n詳細: " + error); });
+    }
+
+    function shipOrder(orderId) {
+      if (!confirm("発送完了にし、納品書を発行しますか？")) return;
+      showLoading("更新中...📦", "納品書PDFを2種類作成しています");
+      fetch(GAS_API_URL + "?action=ship&userId=" + currentUser.id + "&orderId=" + orderId)
+        .then(r => r.json()).then(data => { hideLoading('content-factory'); if(data.success) { alert("✅ 発送処理が完了しました！"); location.reload(); } else alert("❌ エラー: " + data.message); })
+        .catch(error => { hideLoading('content-factory'); alert("通信エラーが発生しました。\n詳細: " + error); });
+    }
+
+    function showLoading(title, text) { document.getElementById('content-order').style.display = 'none'; document.getElementById('content-admin').style.display = 'none'; document.getElementById('content-factory').style.display = 'none'; document.getElementById('loading').style.display = 'block'; document.getElementById('loading').innerHTML = `<h3>${title}</h3><p>${text}</p>`; }
+    function hideLoading(contentId) { document.getElementById('loading').style.display = 'none'; document.getElementById(contentId).style.display = 'block'; }
+  </script>
+</body>
+</html>
+
+<!-- <!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>受発注システム</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background-color: #f8f9fa; color: #333; }
+    #loading { text-align: center; color: #666; margin-top: 50px; }
+    #content-order, #content-factory, #content-admin, #error { display: none; }
+    .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .success { color: #28a745; text-align: center; }
+    .danger { color: #dc3545; text-align: center; }
+    input[type="number"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 16px; text-align: right; }
+    button { width: 100%; padding: 12px; background-color: #0066cc; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    .btn-factory { background-color: #28a745; margin-top: 5px; }
+    .btn-admin { background-color: #ff9900; margin-top: 5px; }
+    .order-item { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+    .product-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding: 10px 0; }
+  </style>
+</head>
+<body>
+
+  <div id="loading"><h3>読み込み中...⏳</h3></div>
+
+  <div id="content-order">
+    <h2 class="success">認証成功！🎉</h2>
+    <div class="card"><h3 id="user-name-order" style="margin-top:0;"></h3></div>
+    <div class="card">
+      <h3 style="margin-top:0; border-bottom:2px solid #0066cc; padding-bottom:5px;">🛒 新規発注</h3>
+      <p style="font-size: 0.9em; color: #666;">発注する商品の数量を入力してください。</p>
+      <div id="product-list"></div>
+      <button type="button" onclick="submitOrder()">発注内容を確認する</button>
+    </div>
+  </div>
+
+  <div id="content-admin">
+    <h2 class="success">認証成功！🎉</h2>
+    <div class="card"><h3 id="user-name-admin" style="margin-top:0;"></h3></div>
+    <div class="card">
+      <h3 style="margin-top:0; border-bottom:2px solid #ff9900; padding-bottom:5px;">👑 発注承認待ち一覧</h3>
+      <div id="admin-orders-list"></div>
+    </div>
+  </div>
+
+  <div id="content-factory">
+    <h2 class="success">認証成功！🎉</h2>
+    <div class="card"><h3 id="user-name-factory" style="margin-top:0;"></h3></div>
+    <div class="card">
+      <h3 style="margin-top:0; border-bottom:2px solid #28a745; padding-bottom:5px;">📦 未発送の注文一覧</h3>
+      <div id="pending-orders-list"></div>
+    </div>
+  </div>
+
+  <div id="error"><h2 class="danger">アクセスエラー 🚫</h2><div class="card"><p>閲覧権限がありません。</p></div></div>
+
+  <script>
+    // 🚨 【重要】GASのURLを貼り付けてください！
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyfRHoP05s5RJgvmIMBWjFJSeAbDYIDYDrCta5UEP2WhJsDbXmyJzssPLh-AImBwIrRsw/exec";
+    
+    const LIFF_ID = "2009443949-Am11BkGY";
+    let currentUser = null;
+
+    window.onload = function() {
+      liff.init({ liffId: LIFF_ID }).then(() => {
+        if (!liff.isLoggedIn()) { liff.login(); return; }
+        liff.getProfile().then(profile => checkAuthorization(profile.userId));
+      });
+    };
+
+    function checkAuthorization(userId) {
+      fetch(GAS_API_URL + "?action=auth&userId=" + userId).then(r => r.json()).then(data => {
+        document.getElementById('loading').style.display = 'none';
+        if (data.isAuthorized) {
+          currentUser = { id: userId, products: data.products || [] };
+          const nameText = data.orgName + " 様 (担当: " + data.userName + "様)";
+
+          if (data.role === '飲食店') {
+            document.getElementById('content-order').style.display = 'block';
+            document.getElementById('user-name-order').innerText = nameText;
+            const listDiv = document.getElementById('product-list');
             // 💡 商品ごとの数量入力欄をリスト表示
             data.products.forEach(p => {
               listDiv.innerHTML += `
@@ -160,23 +358,7 @@
           alert("通信エラーが発生しました。\n詳細: " + error);
         });
     }
-    // function submitOrder() {
-    //   const items = [];
-    //   let summary = "";
-    //   currentUser.products.forEach(p => {
-    //     const qty = Number(document.getElementById('qty-' + p.id).value);
-    //     if (qty > 0) { items.push({ id: p.id, quantity: qty }); summary += `・${p.name} × ${qty}\n`; }
-    //   });
-      
-    //   if (items.length === 0) { alert("商品を1つ以上選択してください。"); return; }
-    //   if (!confirm("以下の内容で発注しますか？\n\n" + summary)) return;
-
-    //   showLoading("送信中...🚀", "発注データを記録しています");
-    //   // JSONデータをURLエンコードして安全に送信
-    //   const encodedItems = encodeURIComponent(JSON.stringify(items));
-    //   fetch(GAS_API_URL + "?action=order&userId=" + currentUser.id + "&items=" + encodedItems)
-    //     .then(r => r.json()).then(data => { hideLoading('content-order'); if(data.success) { alert("✅ 発注完了！"); location.reload(); } else alert("❌ エラー: " + data.message); });
-    // }
+    
 
     function approveOrder(orderId) {
       const manualFee = document.getElementById('fee-' + orderId).value;
@@ -198,180 +380,4 @@
   </script>
 </body>
 </html>
-
-<!-- <!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>受発注システム</title>
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <style>
-    body { font-family: sans-serif; padding: 20px; background-color: #f8f9fa; color: #333; }
-    #loading { text-align: center; color: #666; margin-top: 50px; }
-    /* 3つの画面を最初は隠す */
-    #content-order, #content-factory, #content-admin, #error { display: none; }
-    .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .success { color: #28a745; text-align: center; }
-    .danger { color: #dc3545; text-align: center; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-    select, input[type="number"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 16px; }
-    button { width: 100%; padding: 12px; background-color: #0066cc; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-    .btn-factory { background-color: #28a745; margin-top: 5px; }
-    .btn-admin { background-color: #ff9900; margin-top: 5px; }
-    .order-item { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
-    .order-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-  </style>
-</head>
-<body>
-
-  <div id="loading"><h3>読み込み中...⏳</h3></div>
-
-  <div id="content-order">
-    <h2 class="success">認証成功！🎉</h2>
-    <div class="card"><h3 id="user-name-order" style="margin-top:0;"></h3><p style="color:#666;font-size:0.9em;">権限:<span id="user-role-order"></span></p></div>
-    <div class="card">
-      <h3 style="margin-top:0; border-bottom:2px solid #0066cc; padding-bottom:5px;">🛒 新規発注</h3>
-      <form id="order-form">
-        <div class="form-group"><label>商品を選択</label><select id="product-select"></select></div>
-        <div class="form-group"><label>数量</label><input type="number" id="quantity" min="1" value="1"></div>
-        <button type="button" onclick="submitOrder()">発注内容を確認する</button>
-      </form>
-    </div>
-  </div>
-
-  <div id="content-admin">
-    <h2 class="success">認証成功！🎉</h2>
-    <div class="card"><h3 id="user-name-admin" style="margin-top:0;"></h3><p style="color:#666;font-size:0.9em;">権限:<span id="user-role-admin"></span></p></div>
-    <div class="card">
-      <h3 style="margin-top:0; border-bottom:2px solid #ff9900; padding-bottom:5px;">👑 発注承認待ち一覧</h3>
-      <div id="admin-orders-list"></div>
-    </div>
-  </div>
-
-  <div id="content-factory">
-    <h2 class="success">認証成功！🎉</h2>
-    <div class="card"><h3 id="user-name-factory" style="margin-top:0;"></h3><p style="color:#666;font-size:0.9em;">権限:<span id="user-role-factory"></span></p></div>
-    <div class="card">
-      <h3 style="margin-top:0; border-bottom:2px solid #28a745; padding-bottom:5px;">📦 未発送の注文一覧</h3>
-      <div id="pending-orders-list"></div>
-    </div>
-  </div>
-
-  <div id="error">
-    <h2 class="danger">アクセスエラー 🚫</h2>
-    <div class="card"><p>閲覧権限がありません。</p><p style="color:#666;font-size:0.8em;">LINE ID: <span id="error-id"></span></p></div>
-  </div>
-
-  <script>
-    // 🚨 【重要】先ほどコピーした新しいGASのURLを貼り付けてください！
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyfRHoP05s5RJgvmIMBWjFJSeAbDYIDYDrCta5UEP2WhJsDbXmyJzssPLh-AImBwIrRsw/exec";
-   
-    const LIFF_ID = "2009443949-Am11BkGY";
-    let currentUser = null;
-
-    window.onload = function() {
-      liff.init({ liffId: LIFF_ID }).then(() => {
-        if (!liff.isLoggedIn()) { liff.login(); return; }
-        liff.getProfile().then(profile => {
-          document.getElementById('error-id').innerText = profile.userId;
-          checkAuthorization(profile.userId);
-        }).catch(err => alert("プロフィール取得エラー: " + err));
-      }).catch(err => alert("LIFF初期化エラー: " + err));
-    };
-
-    function checkAuthorization(userId) {
-      const url = GAS_API_URL + "?action=auth&userId=" + userId;
-      fetch(url).then(response => response.json()).then(data => {
-        document.getElementById('loading').style.display = 'none';
-
-        if (data.isAuthorized) {
-          currentUser = { id: userId, name: data.name, role: data.role };
-
-          // 💡 権限で3つの画面を出し分ける！
-          if (data.role === '飲食店') {
-            document.getElementById('content-order').style.display = 'block';
-            document.getElementById('user-name-order').innerText = data.orgName + " 様";
-            // document.getElementById('user-name-order').innerText = data.name + " 様";
-            document.getElementById('user-role-order').innerText = data.role;
-            const select = document.getElementById('product-select');
-            data.products.forEach(p => { select.add(new Option(p.name + " (" + p.price + "円)", p.id)); });
-          
-          } else if (data.role === '仲介者') {
-            document.getElementById('content-admin').style.display = 'block';
-            document.getElementById('user-name-admin').innerText = data.orgName + " 様";
-            // document.getElementById('user-name-admin').innerText = data.name + " 様";
-            document.getElementById('user-role-admin').innerText = data.role;
-            const listDiv = document.getElementById('admin-orders-list');
-            if (data.orders.length === 0) listDiv.innerHTML = "<p>現在、承認待ちの注文はありません。</p>";
-            else {
-              data.orders.forEach(order => {
-                const item = document.createElement('div');
-                item.className = 'order-item';
-                item.innerHTML = `
-                  <p style="margin:0 0 5px 0; font-size:0.8em; color:gray;">注文日時: ${order.date}</p>
-                  <p style="margin:0 0 5px 0;"><strong>店舗:</strong> ${order.storeName}</p>
-                  <p style="margin:0 0 5px 0;"><strong>商品:</strong> ${order.productName} × ${order.quantity}</p>
-                  <p style="margin:0 0 10px 0;"><strong>飲食店向け金額:</strong> ${order.totalAmount}円</p>
-                  <label style="font-size: 0.9em; color:#d32f2f;">仲介手数料 (手動で変更可能) ↓</label>
-                  <input type="number" id="fee-${order.orderId}" value="${order.fee}" style="margin-bottom:10px; border-color:#ff9900;">
-                  <button class="btn-admin" onclick="approveOrder('${order.orderId}')">この内容で工場へ発注する</button>
-                `;
-                listDiv.appendChild(item);
-              });
-            }
-
-          } else if (data.role === '工場') {
-            document.getElementById('content-factory').style.display = 'block';
-            document.getElementById('user-name-factory').innerText = data.orgName + " 様";
-            // document.getElementById('user-name-factory').innerText = data.name + " 様";
-            document.getElementById('user-role-factory').innerText = data.role;
-            const listDiv = document.getElementById('pending-orders-list');
-            if (data.orders.length === 0) listDiv.innerHTML = "<p>現在、未発送の注文はありません。</p>";
-            else {
-              data.orders.forEach(order => {
-                const item = document.createElement('div');
-                item.className = 'order-item';
-                item.innerHTML = `<p style="margin:0 0 5px 0; font-size:0.8em; color:gray;">注文日時: ${order.date}</p><p style="margin:0 0 5px 0;"><strong>店舗:</strong> ${order.storeName}</p><p style="margin:0 0 10px 0;"><strong>商品:</strong> ${order.productName} × ${order.quantity}</p><button class="btn-factory" onclick="shipOrder('${order.orderId}')">発送完了にする</button>`;
-                listDiv.appendChild(item);
-              });
-            }
-          }
-        } else { document.getElementById('error').style.display = 'block'; }
-      }).catch(error => alert("通信エラー\n" + error));
-    }
-
-    // 🍽️ 飲食店の発注処理
-    function submitOrder() {
-      const select = document.getElementById('product-select');
-      const quantity = document.getElementById('quantity').value;
-      if (!confirm("以下の内容で発注しますか？\n\n商品: " + select.options[select.selectedIndex].text + "\n数量: " + quantity)) return;
-      showLoading("送信中...🚀", "発注データを記録しています");
-      fetch(GAS_API_URL + "?action=order&userId=" + currentUser.id + "&productId=" + select.value + "&quantity=" + quantity)
-        .then(r => r.json()).then(data => { hideLoading('content-order'); if(data.success) { alert("✅ 発注完了！"); document.getElementById('quantity').value=1; } else alert("❌ エラー: " + data.message); });
-    }
-
-    // 👔 仲介者の承認処理（手数料の手動変更！）
-    function approveOrder(orderId) {
-      const manualFee = document.getElementById('fee-' + orderId).value; // 入力された手数料を取得
-      if (!confirm("手数料を「" + manualFee + "円」として、工場へ正式に発注しますか？\n（※後からPDF発行機能を追加します）")) return;
-      showLoading("承認中...👑", "手数料を更新し、工場へ送信しています");
-      fetch(GAS_API_URL + "?action=approve&userId=" + currentUser.id + "&orderId=" + orderId + "&fee=" + manualFee)
-        .then(r => r.json()).then(data => { hideLoading('content-admin'); if(data.success) { alert("✅ 工場へ発注しました！"); location.reload(); } else alert("❌ エラー: " + data.message); });
-    }
-
-    // 🏭 工場の発送処理
-    function shipOrder(orderId) {
-      if (!confirm("この注文を「発送完了」にしますか？")) return;
-      showLoading("更新中...📦", "ステータスを書き換えています");
-      fetch(GAS_API_URL + "?action=ship&userId=" + currentUser.id + "&orderId=" + orderId)
-        .then(r => r.json()).then(data => { hideLoading('content-factory'); if(data.success) { alert("✅ 発送処理が完了しました！"); location.reload(); } else alert("❌ エラー: " + data.message); });
-    }
-
-    // ローディング画面の出し入れ用便利関数
-    function showLoading(title, text) { document.getElementById('content-order').style.display = 'none'; document.getElementById('content-admin').style.display = 'none'; document.getElementById('content-factory').style.display = 'none'; document.getElementById('loading').style.display = 'block'; document.getElementById('loading').innerHTML = `<h3>${title}</h3><p>${text}</p>`; }
-    function hideLoading(contentId) { document.getElementById('loading').style.display = 'none'; document.getElementById(contentId).style.display = 'block'; }
-  </script>
-</body>
-</html> -->
+ -->
