@@ -8,7 +8,8 @@
   <style>
     body { font-family: sans-serif; padding: 20px; background-color: #f8f9fa; color: #333; }
     #loading { text-align: center; color: #666; margin-top: 50px; }
-    #content, #error { display: none; }
+    /* 飲食店向け画面と工場向け画面を最初は隠しておく */
+    #content-order, #content-factory, #error { display: none; }
     .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
     .success { color: #28a745; text-align: center; }
     .danger { color: #dc3545; text-align: center; }
@@ -16,6 +17,11 @@
     label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
     select, input[type="number"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 16px; }
     button { width: 100%; padding: 12px; background-color: #0066cc; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    
+    /* 🏭 工場用のデザイン追加 */
+    .btn-ship { background-color: #28a745; margin-top: 5px; }
+    .order-item { border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
+    .order-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
   </style>
 </head>
 <body>
@@ -24,43 +30,43 @@
     <h3>読み込み中...⏳</h3>
   </div>
 
-  <div id="content">
+  <div id="content-order">
     <h2 class="success">認証成功！🎉</h2>
-    
     <div class="card">
-      <h3 id="user-name" style="margin-top: 0;"></h3>
-      <p style="color: #666; font-size: 0.9em;">権限: <span id="user-role"></span></p>
+      <h3 id="user-name-order" style="margin-top: 0;"></h3>
+      <p style="color: #666; font-size: 0.9em;">権限: <span id="user-role-order"></span></p>
     </div>
-
     <div class="card">
       <h3 style="margin-top: 0; border-bottom: 2px solid #0066cc; padding-bottom: 5px;">🛒 新規発注</h3>
       <form id="order-form">
-        <div class="form-group">
-          <label>商品を選択</label>
-          <select id="product-select"></select>
-        </div>
-        
-        <div class="form-group">
-          <label>数量</label>
-          <input type="number" id="quantity" min="1" value="1">
-        </div>
-        
-        <button type="button" onclick="testOrder()">発注内容を確認する</button>
+        <div class="form-group"><label>商品を選択</label><select id="product-select"></select></div>
+        <div class="form-group"><label>数量</label><input type="number" id="quantity" min="1" value="1"></div>
+        <button type="button" onclick="submitOrder()">発注内容を確認する</button>
       </form>
+    </div>
+  </div>
+
+  <div id="content-factory">
+    <h2 class="success">認証成功！🎉</h2>
+    <div class="card">
+      <h3 id="user-name-factory" style="margin-top: 0;"></h3>
+      <p style="color: #666; font-size: 0.9em;">権限: <span id="user-role-factory"></span></p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top: 0; border-bottom: 2px solid #28a745; padding-bottom: 5px;">📦 未発送の注文一覧</h3>
+      <div id="pending-orders-list">
+        </div>
     </div>
   </div>
 
   <div id="error">
     <h2 class="danger">アクセスエラー 🚫</h2>
-    <div class="card">
-      <p>閲覧権限がありません。</p>
-      <p style="color: #666; font-size: 0.8em;">LINE ID: <span id="error-id"></span></p>
-    </div>
+    <div class="card"><p>閲覧権限がありません。</p><p style="color: #666; font-size: 0.8em;">LINE ID: <span id="error-id"></span></p></div>
   </div>
 
- <script>
+  <script>
     // 🚨 【重要】あなたのGASのURLを再度ここに貼り付けてください 🚨
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwG4GDKMWeyWOBJPzgFSbpdf3Ca93pAm_4DNV46fok4cet_0oS46aSmCtD1cN_QFuYkig/exec";
+    const GAS_API_URL = "ここにGASのURLを貼り付けてください";
     
     const LIFF_ID = "2009443949-Am11BkGY";
     let currentUser = null;
@@ -78,7 +84,6 @@
     };
 
     function checkAuthorization(userId) {
-      // 画面を開いた時は「action=auth」として通信する
       const url = GAS_API_URL + "?action=auth&userId=" + userId;
 
       fetch(url)
@@ -87,18 +92,47 @@
           document.getElementById('loading').style.display = 'none';
 
           if (data.isAuthorized) {
-            document.getElementById('content').style.display = 'block';
-            document.getElementById('user-name').innerText = data.name + " 様";
-            document.getElementById('user-role').innerText = data.role;
             currentUser = { id: userId, name: data.name, role: data.role };
 
-            const select = document.getElementById('product-select');
-            data.products.forEach(product => {
-              const option = document.createElement('option');
-              option.value = product.id; 
-              option.text = product.name + " (" + product.price + "円 / " + product.unit + ")"; 
-              select.appendChild(option);
-            });
+            // 💡 権限によって見せる画面をパカっと切り替える！
+            if (data.role === '工場') {
+              // 🏭 工場画面を表示
+              document.getElementById('content-factory').style.display = 'block';
+              document.getElementById('user-name-factory').innerText = data.name + " 様";
+              document.getElementById('user-role-factory').innerText = data.role;
+              
+              // 注文リストを組み立てる
+              const listDiv = document.getElementById('pending-orders-list');
+              if (data.orders.length === 0) {
+                listDiv.innerHTML = "<p>現在、未発送の注文はありません。</p>";
+              } else {
+                data.orders.forEach(order => {
+                  const item = document.createElement('div');
+                  item.className = 'order-item';
+                  item.innerHTML = `
+                    <p style="margin:0 0 5px 0; font-size:0.8em; color:gray;">注文日時: ${order.date}</p>
+                    <p style="margin:0 0 5px 0;"><strong>店舗:</strong> ${order.storeName}</p>
+                    <p style="margin:0 0 10px 0;"><strong>商品:</strong> ${order.productName} × ${order.quantity}</p>
+                    <button class="btn-ship" onclick="shipOrder('${order.orderId}')">発送完了にする</button>
+                  `;
+                  listDiv.appendChild(item);
+                });
+              }
+
+            } else {
+              // 🍽️ 飲食店・仲介者画面（発注フォーム）を表示
+              document.getElementById('content-order').style.display = 'block';
+              document.getElementById('user-name-order').innerText = data.name + " 様";
+              document.getElementById('user-role-order').innerText = data.role;
+              
+              const select = document.getElementById('product-select');
+              data.products.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product.id; 
+                option.text = product.name + " (" + product.price + "円 / " + product.unit + ")"; 
+                select.appendChild(option);
+              });
+            }
           } else {
             document.getElementById('error').style.display = 'block';
           }
@@ -106,206 +140,61 @@
         .catch(error => alert("通信エラー\n" + error));
     }
 
-    // 💡【更新】ボタンを押したときにスプレッドシートへ送信する処理
-    function testOrder() {
+    // 🍽️ 発注ボタンの処理（今までと同じ）
+    function submitOrder() {
       const select = document.getElementById('product-select');
       const quantity = document.getElementById('quantity').value;
       const productId = select.value;
       const selectedText = select.options[select.selectedIndex].text;
       
-      // 最終確認のポップアップを出す
       const isOk = confirm(currentUser.name + " 様\n\n以下の内容で発注しますか？\n\n商品: " + selectedText + "\n数量: " + quantity);
-      
-      if (!isOk) return; // 「キャンセル」を押したらここでストップ
+      if (!isOk) return;
 
-      // 送信中の表示に切り替える
-      document.getElementById('content').style.display = 'none';
+      document.getElementById('content-order').style.display = 'none';
       document.getElementById('loading').style.display = 'block';
       document.getElementById('loading').innerHTML = "<h3>送信中...🚀</h3><p>発注データを記録しています</p>";
 
-      // 注文データをGASに送る（action=order）
       const url = GAS_API_URL + "?action=order&userId=" + currentUser.id + "&productId=" + productId + "&quantity=" + quantity;
 
       fetch(url)
         .then(response => response.json())
         .then(data => {
-          // 元の画面に戻す
           document.getElementById('loading').style.display = 'none';
-          document.getElementById('content').style.display = 'block';
-
+          document.getElementById('content-order').style.display = 'block';
           if (data.success) {
             alert("✅ 発注が完了しました！\n\n注文番号: " + data.orderId);
-            document.getElementById('quantity').value = 1; // 数量を1に戻す
+            document.getElementById('quantity').value = 1;
           } else {
             alert("❌ エラーが発生しました: " + data.message);
           }
         })
-        .catch(error => {
-          alert("通信エラーが発生しました。\n" + error);
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('content').style.display = 'block';
-        });
+        .catch(error => alert("通信エラー\n" + error));
     }
-  </script>
-  
-  <!-- <script>
-    // 🚨 【重要】先ほどコピーしたGASの「ウェブアプリのURL」をここに貼ります 🚨
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwG4GDKMWeyWOBJPzgFSbpdf3Ca93pAm_4DNV46fok4cet_0oS46aSmCtD1cN_QFuYkig/exec";
-    
-    const LIFF_ID = "2009443949-Am11BkGY";
-    let currentUser = null; // ユーザー情報を保存しておく変数
 
-    window.onload = function() {
-      liff.init({ liffId: LIFF_ID })
-        .then(() => {
-          if (!liff.isLoggedIn()) { liff.login(); return; }
-          liff.getProfile().then(profile => {
-            document.getElementById('error-id').innerText = profile.userId;
-            checkAuthorization(profile.userId);
-          }).catch(err => alert("プロフィール取得エラー: " + err));
-        })
-        .catch(err => alert("LIFF初期化エラー: " + err));
-    };
+    // 🏭 【新機能】発送ボタンの処理
+    function shipOrder(orderId) {
+      const isOk = confirm("注文番号: " + orderId + "\n\nこの注文を「発送完了」にしますか？\n※この操作は取り消せません。");
+      if (!isOk) return;
 
-    function checkAuthorization(userId) {
-      const url = GAS_API_URL + "?userId=" + userId;
+      document.getElementById('content-factory').style.display = 'none';
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('loading').innerHTML = "<h3>更新中...📦</h3><p>ステータスを書き換えています</p>";
+
+      const url = GAS_API_URL + "?action=ship&userId=" + currentUser.id + "&orderId=" + orderId;
 
       fetch(url)
         .then(response => response.json())
         .then(data => {
-          document.getElementById('loading').style.display = 'none';
-
-          if (data.isAuthorized) {
-            document.getElementById('content').style.display = 'block';
-            document.getElementById('user-name').innerText = data.name + " 様";
-            document.getElementById('user-role').innerText = data.role;
-            
-            // IDなどのユーザー情報を記憶しておく（次のステップで送信に使うため）
-            currentUser = { id: userId, name: data.name, role: data.role };
-
-            // 💡 スプレッドシートの商品リストをプルダウンにセットする処理
-            const select = document.getElementById('product-select');
-            data.products.forEach(product => {
-              const option = document.createElement('option');
-              option.value = product.id; // 裏側で扱うデータ（商品ID）
-              option.text = product.name + " (" + product.price + "円 / " + product.unit + ")"; // 画面に表示する文字
-              select.appendChild(option);
-            });
-
+          if (data.success) {
+            alert("✅ 発送処理が完了しました！");
+            location.reload(); // 画面を再読み込みしてリストを最新にする
           } else {
-            document.getElementById('error').style.display = 'block';
+            alert("❌ エラーが発生しました: " + data.message);
+            location.reload();
           }
         })
-        .catch(error => {
-          alert("通信に失敗しました。\n" + error);
-        });
-    }
-
-    // 「発注内容を確認する」ボタンを押したときのテスト処理
-    function testOrder() {
-      const select = document.getElementById('product-select');
-      const quantity = document.getElementById('quantity').value;
-      const selectedText = select.options[select.selectedIndex].text; // 選んだ商品のテキスト
-      
-      alert(currentUser.name + " 様\n\n以下の内容で発注しますか？\n\n商品: " + selectedText + "\n数量: " + quantity + "\n\n※今回は確認テストです。まだスプレッドシートには送信されません。");
-    }
-  </script> -->
-</body>
-</html>
-
-<!-- <!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>受発注システム</title>
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <style>
-    body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f8f9fa; }
-    #loading { color: #666; margin-top: 50px; }
-    #content, #error { display: none; margin-top: 20px; }
-    .success { color: #28a745; }
-    .danger { color: #dc3545; }
-    .card { background: #fff; border: 1px solid #ddd; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-  </style>
-</head>
-<body>
-
-  <div id="loading">
-    <h3>認証中...⏳</h3>
-    <p>データベースと通信しています</p>
-  </div>
-
-  <div id="content">
-    <h2 class="success">認証成功！🎉</h2>
-    <div class="card">
-      <h3 id="user-name"></h3>
-      <p>あなたの権限: <strong id="user-role"></strong></p>
-      <hr style="border:0; border-top:1px solid #eee; margin:20px 0;">
-      <p style="color: #666;">ここに発注フォームや納品ボタンを作っていきます。</p>
-    </div>
-  </div>
-
-  <div id="error">
-    <h2 class="danger">アクセスエラー 🚫</h2>
-    <div class="card">
-      <p>このページを閲覧する権限がありません。</p>
-      <p style="color: #666; font-size: 0.8em; margin-top:20px;">あなたのLINE ID:<br><span id="error-id"></span></p>
-    </div>
-  </div>
-
-  <script>
-    // 🚨 【重要】先ほどコピーしたGASの「ウェブアプリのURL」をここに貼ります 🚨
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwG4GDKMWeyWOBJPzgFSbpdf3Ca93pAm_4DNV46fok4cet_0oS46aSmCtD1cN_QFuYkig/exec";
-    
-    // LIFF ID
-    const LIFF_ID = "2009443949-Am11BkGY";
-
-    window.onload = function() {
-      liff.init({ liffId: LIFF_ID })
-        .then(() => {
-          if (!liff.isLoggedIn()) {
-            liff.login();
-            return;
-          }
-
-          // 1. LINE IDを取得する
-          liff.getProfile().then(profile => {
-            const userId = profile.userId;
-            document.getElementById('error-id').innerText = userId;
-            
-            // 2. 取得したIDを使ってGASに問い合わせる
-            checkAuthorization(userId);
-          }).catch(err => alert("プロフィール取得エラー: " + err));
-        })
-        .catch(err => alert("LIFF初期化エラー: " + err));
-    };
-
-    // GASと通信して権限をチェックする処理
-    function checkAuthorization(userId) {
-      // URLの末尾に「?userId=U123...」という形でIDをくっつけて送ります
-      const url = GAS_API_URL + "?userId=" + userId;
-
-      fetch(url)
-        .then(response => response.json()) // GASから返ってきたデータをJSONとして読み込む
-        .then(data => {
-          // 通信が終わったので「認証中」の表示を隠す
-          document.getElementById('loading').style.display = 'none';
-
-          if (data.isAuthorized) {
-            // OKだった場合（許可リストにいて、有効な場合）
-            document.getElementById('content').style.display = 'block';
-            document.getElementById('user-name').innerText = data.name + " 様、ようこそ！";
-            document.getElementById('user-role').innerText = data.role;
-          } else {
-            // NGだった場合
-            document.getElementById('error').style.display = 'block';
-          }
-        })
-        .catch(error => {
-          alert("GASとの通信に失敗しました。URLが合っているか確認してください。\n" + error);
-        });
+        .catch(error => alert("通信エラー\n" + error));
     }
   </script>
 </body>
-</html> -->
+</html>
